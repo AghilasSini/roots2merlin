@@ -85,8 +85,14 @@ class UttByUtt(object):
     def __init__(self,utt,label_file_dest,list_sequences_name=None):
         #self.list_sequences_name=list_sequences_name
         self.label_file_dest=label_file_dest
-        self.segments=utt.get_sequence('Time Segment JTrans').as_segment_sequence().get_all_items()
-        self.syllables=utt.get_sequence('Syllable').as_syllable_sequence().get_all_items()
+	if self.utt.is_valid_sequence('Time Segment JTrans'):
+		self.segments=utt.get_sequence('Time Segment JTrans').as_segment_sequence().get_all_items()
+	if self.utt.is_valid_sequence('Syllable'):
+		self.syllables=utt.get_sequence('Syllable').as_syllable_sequence().get_all_items()
+	if self.utt.is_valid_sequence('Word JTrans'):
+		self.words=utt.get_sequence('Word JTrans').as_word_sequence().get_all_items()
+	if self.utt.is_valid_sequence('Breath Group'):
+		self.phrases=utt.get_sequence('Breath Group').as_symbol_sequence().get_all_items()
         
     # beg end
     def get_time_segment(self,segment):
@@ -141,16 +147,8 @@ class UttByUtt(object):
     def get_syllable_structure(self,syllable):
         return len(syllable.get_related_items('Phone JTrans'))
     
-    #@b4-b5&b6-b7
-    def get_syllable_postion(self,syllable):
-        
-        
-        syl_wrd_fwd,syl_wrd_bwd=self.get_position(syllable.get_related_items('Breath Group')[0],syllable.to_string(),'Syllable')
-    
-        syl_phrase_fwd,syl_phrase_bwd=self.get_position(syllable.get_related_items('Word JTrans')[0],syllable.to_string(),'Syllable')
-        
-        
-        return "@{}-{}&{}-{}".format(syl_wrd_fwd,syl_wrd_bwd,syl_phrase_fwd,syl_phrase_bwd)
+  
+  
     
     #|b16
     def get_syl_last_phone(self,syllable):
@@ -158,33 +156,104 @@ class UttByUtt(object):
     
 
 
-   
+  #p1ˆp2-p3+p4=p5@p6_p7/A:a3/B:b1-b2-b3@b4-b5&b6-b7|b16/C:c3/D:d1_d2/E:e1+e2@e3+e4/F:f1_f2/G:g1_g2/H:h1=h2@h3=h4/I:i1_i2/J:j1+j2-j3 
     def get_segment_context(self):
         phone_label_file=codecs.open(self.label_file_dest,'w','utf-8')
         prev_syl_struct='x'
+	next_syl_struct='x'
         for iseg, segment in enumerate(self.segments):
             time_seg=self.get_time_segment(segment)
-            c_phone_context=self.get_quinphon(iseg)
+	    # p1ˆp2-p3+p4=p5
+            p1,p2,p3,p4=p5=self.get_quinphon(iseg)
             syllables=segment.get_related_items('Syllable')
-            if len(syllables)>0:
+	    # Warning: there is something wrong in this condition
+	    # I think it's okay
+            if p3!='sil':
+		#phones
                 icur_syl=syllables[0].get_in_sequence_index()
                 cur_syl=self.syllables[icur_syl]
                 c_phone_name=self.get_phoneme_name(segment)
+		# p6_p7
                 fwd,bwd=self.get_position(cur_syl,c_phone_name,'Phone JTrans')
                 seg_syl_pos="{}_{}".format(fwd,bwd)
+		# a3
                 if icur_syl>0:
                     prev_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl-1]))
-                else:
+		else:
                     prev_syl_struct="x"
+		#Syllable information ()
                 cur_syl_struct="{}".format(self.get_syllable_structure(self.syllables[icur_syl]))
-                cur_syl_pos=self.get_syllable_postion(cur_syl)
+		syl_wrd_fwd,syl_wrd_bwd=self.get_position(cur_syl.get_related_items('Breath Group')[0],syllable.to_string(),'Syllable')
+		syl_phrase_fwd,syl_phrase_bwd=self.get_position(cur_syl.get_related_items('Word JTrans')[0],syllable.to_string(),'Syllable')
+
                 cur_last_phone=self.get_syl_last_phone(cur_syl)
+		if icur_syl<len(syllables)-1:
+                    nex_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl+1]))
+		else:
+		    nex_syl_struct="x"
+		# Word Informations
+		cur_word=cur_syl.get_related_items('Word JTrans')[0]
+		icur_word=cur_word.get_index_in_sequence()
+		if icur_word>0:
+			prev_word_nsyl='{}'.format(len(self.words[icur_word-1].get_related_items('Syllable')))
+			prev_word_pos='{}'.format(self.words[icur_word-1].get_related_items('Pos')[0].to_string())
+		else:
+			prev_word_nsyl='x'
+			prev_word_pos='x'
+			
+		if icur_word<len(self.words):
+			next_word_nsyl='{}'.format(len(self.words[icur_word+1].get_related_items('Syllable')))
+			next_word_pos='{}'.format(self.words[icur_word+1].get_related_items('Pos')[0].to_string())		
+		else:
+			next_word_nsyl='x'
+			next_word_pos='x'
+
+
+		cur_word_nsyl='{}'.format(len(self.words[icur_word+1].get_related_items('Syllable'))))
+		cur_word_pos='{}'.format(self.cur_word.get_related_items('Pos')[0].to_string())
+		cur_phrase=cur_word.get_related_items('Breath Group')[0]
+		icur_phrase=cur_phrase.get_index_in_sequence()		
+		cur_word_in_phrase_fwd,cur_word_in_phrase_bwd=self.get_position(cur_phrase,cur_word.to_string(),'Breath Group')
+		# Phrase Information		
+		if icur_phrase>0:
+			prev_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase-1].get_related_items('Word JTrans')))
+			prev_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase-1].get_related_items('Syllable')))
+		else:
+			prev_phrase_nwrd='x'
+			prev_phrase_nsyl='x'
+		
+		cur_phrase_nwrd='{}'.format(len(cur_phrase.get_related_items('Word JTrans')))
+		cur_phrase_nsyl='{}'.format(len(cur_phrase.get_related_items('Syllable')))
+		cur_phrase_in_utt_fwd=icur_phrase+1
+		cur_phrase_in_utt_bwd=len(self.phrases)-icur_phrase
+
+
+		if icur_phrase<len(self.phrases)-1:
+			next_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Word JTrans')))
+			next_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Syllable')))
+		else:
+			next_phrase_nwrd='x'
+			next_phrase_nsyl='x'
                 
             else:
-                seg_syl_pos="x_x"
+		# first segment in the utt
+		if segment.is_first_in_sequence ():
+									
+		elif segment.is_last_in_sequence():
+			
+		else:
+							
+		# last segment in the utt
+		# between two breath group                
+		
+		seg_syl_pos="x_x"
                 cur_syl_struct='x'
                 cur_syl_pos='@x-x&x-x'
                 cur_last_phone='|x'
+
+
+
+
             phone_label_file.write("{} {}@{}/A:{}/B:{}{}{}\n".format(time_seg,c_phone_context,seg_syl_pos,prev_syl_struct,cur_syl_struct,cur_syl_pos,cur_last_phone))
             prev_syl_struct=cur_syl_struct    
         phone_label_file.close()
