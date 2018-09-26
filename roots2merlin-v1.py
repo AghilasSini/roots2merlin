@@ -123,7 +123,7 @@ class UttByUtt(object):
             rr_segment_name=self.get_phoneme_name(self.segments[iseg+2])
         #by default it in sampa (for now)
         # you have to convert this ....  let's try with sampa phoneset then we will see
-        return "{}^{}-{}+{}={}".format(ll_segment_name,l_segment_name,c_segment_name,r_segment_name,rr_segment_name)
+        return ll_segment_name,l_segment_name,c_segment_name,r_segment_name,rr_segment_name
     
     
     def get_phoneme_name(self,seg):
@@ -139,7 +139,7 @@ class UttByUtt(object):
         item_length=len(item_subseq)
         for isub_item,sub_item in enumerate(item_subseq):
             if sub_item.to_string()==sub_item_name:
-                return [isub_item+1,item_length-isub_item]
+                return str(isub_item+1),str(item_length-isub_item)
 
     #p6-p7
     
@@ -152,30 +152,46 @@ class UttByUtt(object):
     
     #|b16
     def get_syl_last_phone(self,syllable):
-        return "|{}".format(syllable.get_related_items('Phone JTrans')[-1].to_string())
+        return "{}".format(syllable.get_related_items('Phone JTrans')[-1].to_string())
     
 
+   
+
+    
+    def get_utt_properties():
+	return  [len(self.phrases),len(self.words),len(self.sylllables)]
 
   #p1ˆp2-p3+p4=p5@p6_p7/A:a3/B:b1-b2-b3@b4-b5&b6-b7|b16/C:c3/D:d1_d2/E:e1+e2@e3+e4/F:f1_f2/G:g1_g2/H:h1=h2@h3=h4/I:i1_i2/J:j1+j2-j3 
     def get_segment_context(self):
         phone_label_file=codecs.open(self.label_file_dest,'w','utf-8')
-        prev_syl_struct='x'
-	next_syl_struct='x'
+
+	# initial state of all
+
+	icur_syl=0
+	icur_word=0
+	icur_phrase=0
+	
+
+
+
         for iseg, segment in enumerate(self.segments):
             time_seg=self.get_time_segment(segment)
 	    # p1ˆp2-p3+p4=p5
-            p1,p2,p3,p4=p5=self.get_quinphon(iseg)
-            syllables=segment.get_related_items('Syllable')
+            ll_phone,l_phone,c_phone,r_phone,rr_phone=self.get_quinphon(iseg)
+            
+	    cur_syls=segment.get_related_items('Syllable')[0]
+
+
+
 	    # Warning: there is something wrong in this condition
 	    # I think it's okay
-            if p3!='sil':
+            if len(cur_syls)>0:
 		#phones
-                icur_syl=syllables[0].get_in_sequence_index()
-                cur_syl=self.syllables[icur_syl]
+                icur_syl=cur_syls[0].get_in_sequence_index()
+ 		cur_syl=cur_syls[0]
                 c_phone_name=self.get_phoneme_name(segment)
 		# p6_p7
-                fwd,bwd=self.get_position(cur_syl,c_phone_name,'Phone JTrans')
-                seg_syl_pos="{}_{}".format(fwd,bwd)
+                seg_in_syl_fwd,seg_in_syl_bwd=self.get_position(cur_syl,c_phone_name,'Phone JTrans')
 		# a3
                 if icur_syl>0:
                     prev_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl-1]))
@@ -236,26 +252,61 @@ class UttByUtt(object):
 			next_phrase_nsyl='x'
                 
             else:
-		# first segment in the utt
-		if segment.is_first_in_sequence ():
-									
-		elif segment.is_last_in_sequence():
-			
+		# current syllable properties will all be x
+		if icur_syl>0:
+                    prev_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl-1]))
 		else:
-							
-		# last segment in the utt
-		# between two breath group                
-		
-		seg_syl_pos="x_x"
-                cur_syl_struct='x'
-                cur_syl_pos='@x-x&x-x'
-                cur_last_phone='|x'
+                    prev_syl_struct="x"
+		if icur_syl<len(syllables)-1:
+                    nex_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl+1]))
+		else:
+		    nex_syl_struct="x"
+		seg_in_syl_fwd,seg_in_syl_bwd='x','x'
+		cur_syl_struct='x'
+		syl_wrd_fwd,syl_wrd_bwd='x','x'
+		syl_phrase_fwd,syl_phrase_bwd='x','x'
+		cur_last_phone='x'
+		# current word properties will all be x
+		if icur_word>0:
+			prev_word_nsyl='{}'.format(len(self.words[icur_word-1].get_related_items('Syllable')))
+			prev_word_pos='{}'.format(self.words[icur_word-1].get_related_items('Pos')[0].to_string())
+		else:
+			prev_word_nsyl='x'
+			prev_word_pos='x'
+			
+		if icur_word<len(self.words):
+			next_word_nsyl='{}'.format(len(self.words[icur_word+1].get_related_items('Syllable')))
+			next_word_pos='{}'.format(self.words[icur_word+1].get_related_items('Pos')[0].to_string())		
+		else:
+			next_word_nsyl='x'
+			next_word_pos='x'
+		cur_word_nsyl='x'
+		cur_word_pos='x'
+		cur_phrase='x'
+		icur_phrase='x'		
+		cur_word_in_phrase_fwd,cur_word_in_phrase_bwd='x','x'
+		# current pĥrase properties will all be x
+		if icur_phrase>0:
+			prev_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase-1].get_related_items('Word JTrans')))
+			prev_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase-1].get_related_items('Syllable')))
+		else:
+			prev_phrase_nwrd='x'
+			prev_phrase_nsyl='x'
+
+		if icur_phrase<len(self.phrases)-1:
+			next_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Word JTrans')))
+			next_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Syllable')))
+		else:
+			next_phrase_nwrd='x'
+			next_phrase_nsyl='x'
+		cur_phrase_nwrd='x'
+		cur_phrase_nsyl='x'
+		cur_phrase_in_utt_fwd='x'
+		cur_phrase_in_utt_bwd='x'
+	utt_nphrases,utt_nbwords,utt_nbsyllables=self.get_utt_properties()
 
 
-
-
-            phone_label_file.write("{} {}@{}/A:{}/B:{}{}{}\n".format(time_seg,c_phone_context,seg_syl_pos,prev_syl_struct,cur_syl_struct,cur_syl_pos,cur_last_phone))
-            prev_syl_struct=cur_syl_struct    
+            
         phone_label_file.close()
             
     
