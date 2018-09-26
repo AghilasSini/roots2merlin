@@ -353,16 +353,16 @@ class UttByUtt(object):
                 cur_phrase_in_utt_bwd='x'
 
             phone_label_file.write('{} '.format(self.get_time_segment(segment)))    
-            # segment properties
+            # segment properties #p1ˆp2-p3+p4=p5@p6_p7
             phone_label_file.write('{}^{}-{}+{}={}@{}_{}'.format(ll_phone,l_phone,c_phone,r_phone,rr_phone,seg_in_syl_fwd,seg_in_syl_bwd))
-            # syllables properties
+            # syllables properties #/A:a3/B:b3@b4-b5&b6-b7|b16/C:c3
             phone_label_file.write('/A:{}/B:{}@{}-{}&{}-{}|{}/C:{}'.format(prev_syl_struct,cur_syl_struct,syl_wrd_fwd,syl_wrd_bwd,syl_phrase_fwd,syl_phrase_bwd,cur_last_phone,nex_syl_struct))
 
             if not cur_last_phone in self.dict_questions.keys():
                 self.dict_questions[cur_last_phone]="QS \"C-Syl_{}\" {{|{}/C:}}".format(cur_last_phone,cur_last_phone)
            
 
-            # word properties
+            # word properties #/D:d1_d2/E:e1+e2@e3+e4/F:f1_f2
             phone_label_file.write('/D:{}_{}/E:{}+{}s@{}+{}/F:{}_{}'.format(prev_word_pos,prev_word_nsyl,cur_word_pos,cur_word_nsyl,cur_word_in_phrase_fwd,cur_word_in_phrase_bwd,next_word_pos,next_word_nsyl))
             lprev_word_pos='L-Word_GPOS={}'.format(prev_word_pos)
             if not lprev_word_pos in self.dict_questions.keys():
@@ -374,9 +374,9 @@ class UttByUtt(object):
             if not rnext_word_pos in self.dict_questions.keys():
                 self.dict_questions[rnext_word_pos]="QS \"{}\" {{/F:{}_}}".format(rnext_word_pos,next_word_pos)
    	
-            # phrase properties
-            phone_label_file.write('/G:{}_{}/H:{}={}@{}={}/I:{}_{}'.format(prev_phrase_nsyl,prev_phrase_nwrd,cur_phrase_nwrd,cur_phrase_nsyl,cur_phrase_in_utt_fwd,cur_phrase_in_utt_bwd,next_phrase_nsyl,next_phrase_nwrd))
-            # utterance properties
+            # phrase properties #/G:g1_g2/H:h1=h2@h3=h4/I:i1_i2
+            phone_label_file.write('/G:{}_{}/H:{}={}@{}={}/I:{}_{}'.format(prev_phrase_nsyl,prev_phrase_nwrd,cur_phrase_nsyl,cur_phrase_nwrd,cur_phrase_in_utt_fwd,cur_phrase_in_utt_bwd,next_phrase_nsyl,next_phrase_nwrd))
+            # utterance properties # /J:j1+j2-j3 
             phone_label_file.write('/J:{}+{}-{}\n'.format(utt_nbsyllables,utt_nbwords,utt_nphrases))
         phone_label_file.close()
             
