@@ -28,7 +28,7 @@ class Roots2Merlin(object):
     file_id_list=[]
     iutt=0 
     dict_questions_corpus={}
-    def __init__(self,roots_file_name,label_dir_dest,speaker_name='nadine',min_utt_dur=1.5,max_utt_dur=5.0,num_utt=60,copy_dest_dir=None,copy=False):
+    def __init__(self,roots_file_name,label_dir_dest,speaker_name='nadine',min_utt_dur=1.5,max_utt_dur=10.0,num_utt=1160,copy_dest_dir=None,copy=False):
         self.roots_file_name=roots_file_name
         self.label_dir_dest=label_dir_dest
         self.copy=copy
@@ -53,14 +53,17 @@ class Roots2Merlin(object):
             sigItem=utt.get_sequence('Signal').get_item(0).as_acoustic_SignalSegment()
             if sigItem.get_segment_duration() > self.min_utt_dur  and sigItem.get_segment_duration() < self.max_utt_dur and self.iutt < self.num_utt:
                 utt_file_name,ext=os.path.splitext(sigItem.get_file_name())
+                audio_file_orig=os.path.join(self.get_roots_file_dirpath(),sigItem.get_base_dir_name()+"/"+sigItem.get_file_name())
+				
                 label_id_name=self.speaker_name+'_'+str(self.iutt).zfill(4)
                 label_file_name=os.path.join(self.label_dir_dest,label_id_name+".lab")
-		audio_file_name=os.path.join(self.label_dir_dest,label_id_name+".wav")
+                audio_file_copy=os.path.join(self.label_dir_dest,label_id_name+".wav")
+
                 self.file_id_list.append(label_id_name)
                 utt_prop=UttByUtt(utt,label_file_name,self.dict_questions_corpus)
                 utt_prop.get_segment_context()
                 self.dict_questions_corpus=utt_prop.get_question_dict()
-
+                copyfile(audio_file_orig,audio_file_copy)	
                 #for making copy
                 if self.copy:
                     label_file_name_copy=os.path.join(self.copy_dest_dir,utt_file_name+".lab")
@@ -260,14 +263,14 @@ class UttByUtt(object):
         		# Word Informations
                 cur_word=cur_syl.get_related_items('Word JTrans')[0]
                 icur_word=cur_word.get_in_sequence_index()                
-                if icur_word>0:
+                if icur_word>0 and len(self.words[icur_word-1].get_related_items('Pos'))>0:
                 	prev_word_nsyl='{}'.format(len(self.words[icur_word-1].get_related_items('Syllable')))
                 	prev_word_pos='{}'.format(self.words[icur_word-1].get_related_items('Pos')[0].to_string())
                 else:
                 	prev_word_nsyl='x'
                 	prev_word_pos='x'
 
-                if icur_word<len(self.words):
+                if icur_word<len(self.words) and len(self.words[icur_word+1].get_related_items('Pos'))>0:
                 	next_word_nsyl='{}'.format(len(self.words[icur_word+1].get_related_items('Syllable')))
                 	next_word_pos='{}'.format(self.words[icur_word+1].get_related_items('Pos')[0].to_string())		
                 else:
@@ -275,7 +278,10 @@ class UttByUtt(object):
                 	next_word_pos='x'
 
                 cur_word_nsyl='{}'.format(len(cur_word.get_related_items('Syllable')))
-                cur_word_pos='{}'.format(cur_word.get_related_items('Pos')[0].to_string())
+                if len(cur_word.get_related_items('Pos'))>0:
+                	cur_word_pos='{}'.format(cur_word.get_related_items('Pos')[0].to_string())
+                else:
+                	cur_word_pos='x'
                 cur_phrase=cur_word.get_related_items('Breath Group')[0]
                 icur_phrase=cur_phrase.get_in_sequence_index()		
                 cur_word_in_phrase_fwd,cur_word_in_phrase_bwd=self.get_position(cur_phrase,cur_word.to_string(),'Word JTrans')
@@ -316,14 +322,14 @@ class UttByUtt(object):
                 syl_phrase_fwd,syl_phrase_bwd='x','x'
                 cur_last_phone='x'
         		# current word properties will all be x
-                if icur_word>0:
+                if icur_word>0 and len(self.words[icur_word].get_related_items('Pos'))>0:
                 	prev_word_nsyl='{}'.format(len(self.words[icur_word].get_related_items('Syllable')))
                 	prev_word_pos='{}'.format(self.words[icur_word].get_related_items('Pos')[0].to_string())
                 else:
                 	prev_word_nsyl='x'
                 	prev_word_pos='x'
         			
-                if icur_word<len(self.words):
+                if icur_word<len(self.words) and  len(self.words[icur_word+1].get_related_items('Pos'))>0 and len(self.words[icur_word+1].get_related_items('Syllable'))>0:
                 	next_word_nsyl='{}'.format(len(self.words[icur_word+1].get_related_items('Syllable')))
                 	next_word_pos='{}'.format(self.words[icur_word+1].get_related_items('Pos')[0].to_string())		
                 else:
