@@ -53,9 +53,9 @@ class Roots2Merlin(object):
             sigItem=utt.get_sequence('Signal').get_item(0).as_acoustic_SignalSegment()
             if sigItem.get_segment_duration() > self.min_utt_dur  and sigItem.get_segment_duration() < self.max_utt_dur and self.iutt < self.num_utt:
                 utt_file_name,ext=os.path.splitext(sigItem.get_file_name())
-                
                 label_id_name=self.speaker_name+'_'+str(self.iutt).zfill(4)
                 label_file_name=os.path.join(self.label_dir_dest,label_id_name+".lab")
+		audio_file_name=os.path.join(self.label_dir_dest,label_id_name+".wav")
                 self.file_id_list.append(label_id_name)
                 utt_prop=UttByUtt(utt,label_file_name,self.dict_questions_corpus)
                 utt_prop.get_segment_context()
