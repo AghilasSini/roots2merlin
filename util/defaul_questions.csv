@@ -75,6 +75,7 @@ QS;"C-Open";"ɑ̃"
 QS;"C-Close";"i,y,u"
 QS;"C-Close-mid";"e,ø,ə,o"
 QS;"C-Open-mid";"ɛ,ɛː,œ,ɔ,ə"
+
 QS;"C-Open";"a,ɑ"
 QS;"C-Syl_Vowel" ;"i,y,u,e,ø,ə,o,ɛ,ɛː,œ,ɔ,a,ɑ,ɛ̃,œ̃,ɔ̃,ɑ̃"
 QS;"C-Syl_Consonant";"m,n,ɲ,(ŋ),p,t,k,b,d,ɡ,f,s,ʃ,v,z,ʒ+,l,j,ʁ,ɥ,w"

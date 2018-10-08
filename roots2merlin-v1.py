@@ -18,8 +18,8 @@ from util.phone_convert import load_default_questions
 
 from shutil import copyfile
 import re
-
-
+from collections import OrderedDict
+import subprocess
 # Author : Aghilas SINI
 # This code is inspired from TextGrid.py Class Source Code
 
@@ -27,8 +27,8 @@ class Roots2Merlin(object):
     
     file_id_list=[]
     iutt=0 
-    dict_questions_corpus={}
-    def __init__(self,roots_file_name,label_dir_dest,speaker_name='nadine',min_utt_dur=1.5,max_utt_dur=10.0,num_utt=1160,copy_dest_dir=None,copy=False):
+    dict_questions_corpus=OrderedDict()
+    def __init__(self,roots_file_name,label_dir_dest,speaker_name='nadine',min_utt_dur=1.5,max_utt_dur=20,num_utt=2000,copy_dest_dir=None,copy=False):
         self.roots_file_name=roots_file_name
         self.label_dir_dest=label_dir_dest
         self.copy=copy
@@ -46,24 +46,42 @@ class Roots2Merlin(object):
     def get_roots_file_dirpath(self):
         return os.path.dirname(self.roots_file_name)
 
+    def convert_audio_file(self,source_wav_fn,target_wav_fn, target_fs):
+        bashCommand = "sox {}  {} rate {}k".format(source_wav_fn,target_wav_fn,target_fs)
+        
+        process = subprocess.Popen(bashCommand.split(), stdout=subprocess.PIPE)
+        output, error = process.communicate()
+   
+
 
     def processing(self,utts):
-        print(self.get_roots_file_dirpath())
+        if not os.path.exists(self.label_dir_dest):
+            os.mkdir(self.label_dir_dest)
+        print("utt by utt processing start....")
         for utt in utts:
             sigItem=utt.get_sequence('Signal').get_item(0).as_acoustic_SignalSegment()
+            time_segments=utt.get_sequence('Time Segment JTrans')
             if sigItem.get_segment_duration() > self.min_utt_dur  and sigItem.get_segment_duration() < self.max_utt_dur and self.iutt < self.num_utt:
                 utt_file_name,ext=os.path.splitext(sigItem.get_file_name())
                 audio_file_orig=os.path.join(self.get_roots_file_dirpath(),sigItem.get_base_dir_name()+"/"+sigItem.get_file_name())
-				
+                audio_dir=os.path.join(self.label_dir_dest,'wav')
+                if not os.path.exists(audio_dir):
+                    os.mkdir(audio_dir)
+
+                phone_label_dir=os.path.join(self.label_dir_dest,'label_phone_align')
+                
+                if not os.path.exists(phone_label_dir):
+                    os.mkdir(phone_label_dir)
                 label_id_name=self.speaker_name+'_'+str(self.iutt).zfill(4)
-                label_file_name=os.path.join(self.label_dir_dest,label_id_name+".lab")
-                audio_file_copy=os.path.join(self.label_dir_dest,label_id_name+".wav")
+
+                label_file_name=os.path.join(phone_label_dir,label_id_name+".lab")
+                audio_file_copy=os.path.join(audio_dir,label_id_name+".wav")
 
                 self.file_id_list.append(label_id_name)
                 utt_prop=UttByUtt(utt,label_file_name,self.dict_questions_corpus)
                 utt_prop.get_segment_context()
                 self.dict_questions_corpus=utt_prop.get_question_dict()
-                copyfile(audio_file_orig,audio_file_copy)	
+                #self.convert_audio_file(audio_file_orig,audio_file_copy,48)	
                 #for making copy
                 if self.copy:
                     label_file_name_copy=os.path.join(self.copy_dest_dir,utt_file_name+".lab")
@@ -71,7 +89,9 @@ class Roots2Merlin(object):
                 self.iutt+=1
 
             utt.destroy()
-        self.print_file_ids('./file_id_list.scp')
+        file_id_path=os.path.join(self.label_dir_dest,'file_id_list.scp')
+        self.print_file_ids(file_id_path)
+        print('questions head file')
         self.print_hed_question_file('./questions-{}.txt'.format(self.speaker_name))
     
     def load_roots_file(self):
@@ -118,12 +138,31 @@ class UttByUtt(object):
         self.utt=utt
         if self.utt.is_valid_sequence('Time Segment JTrans'):
             self.segments=utt.get_sequence('Time Segment JTrans').as_segment_sequence().get_all_items()
+        else:
+        	sys.exit(-1) 
         if self.utt.is_valid_sequence('Syllable'):
             self.syllables=utt.get_sequence('Syllable').as_syllable_sequence().get_all_items()
+        else:
+        	sys.exit(-1)
         if self.utt.is_valid_sequence('Word JTrans'):
             self.words=utt.get_sequence('Word JTrans').as_word_sequence().get_all_items()
+        else:
+        	sys.exit(-1)            
         if self.utt.is_valid_sequence('Breath Group'):
             self.phrases=utt.get_sequence('Breath Group').as_symbol_sequence().get_all_items()
+        else:
+        	sys.exit(-1)
+        # if self.utt.is_valid_sequence('Sentence Bonsai'):
+        #     self.sentences=self.utt.get_sequence("Sentence Bonsai").as_symbol_sequence().get_all_items()
+        # else:
+        #     sys.exit(-1)
+        
+        if self.utt.is_valid_sequence('POS Stanford'):
+        	self.part_of_speech='POS Stanford'
+        elif self.utt.is_valid_sequence('Pos'):
+        	self.part_of_speech='Pos'
+        else:
+        	sys.exit(-1)
             
     # beg end
     def get_time_segment(self,segment):
@@ -149,6 +188,7 @@ class UttByUtt(object):
         elif iseg==len(self.segments)-2:
             r_segment_name=self.get_phoneme_name(self.segments[iseg+1])
             rr_segment_name='x'
+
         else:
             r_segment_name=self.get_phoneme_name(self.segments[iseg+1])
             rr_segment_name=self.get_phoneme_name(self.segments[iseg+2])
@@ -162,7 +202,10 @@ class UttByUtt(object):
         if len(phones_segment)>0:
             return phones_segment[0].to_string()
         else:
-            return "sil"
+            if seg.is_first_in_sequence () or seg.is_last_in_sequence ():
+                return "sil"
+            else:
+                return "pau"
      
     
     def get_position(self,item,sub_item_name,sub_item_seq_name):
@@ -194,6 +237,9 @@ class UttByUtt(object):
     def get_question_dict(self):
     	return self.dict_questions
 
+
+
+
   #p1ˆp2-p3+p4=p5@p6_p7/A:a3/B:b3@b4-b5&b6-b7|b16/C:c3/D:d1_d2/E:e1+e2@e3+e4/F:f1_f2/G:g1_g2/H:h1=h2@h3=h4/I:i1_i2/J:j1+j2-j3 
     def get_segment_context(self):
         phone_label_file=codecs.open(self.label_file_dest,'w','utf-8')
@@ -202,8 +248,9 @@ class UttByUtt(object):
         icur_syl=0
         icur_word=0
         icur_phrase=0
+        seg_end=0.0
+        seg_beg=0.0
         for iseg, segment in enumerate(self.segments):
-            time_seg=self.get_time_segment(segment)
 	    # p1ˆp2-p3+p4=p5
 
             ll_phone,l_phone,c_phone,r_phone,rr_phone=self.get_quinphon(iseg)
@@ -249,37 +296,42 @@ class UttByUtt(object):
     		# a3
                 if icur_syl>0:
                     prev_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl-1]))
+                    prev_syl_style='{}'.format(self.get_syllable_style(self.syllables[icur_syl-1]))
                 else:
                     prev_syl_struct="x"
+                    prev_syl_style='x'
     		#Syllable information ()
                 cur_syl_struct="{}".format(self.get_syllable_structure(self.syllables[icur_syl]))
+                cur_syl_style ="{}".format(self.get_syllable_style(self.syllables[icur_syl]))
                 syl_wrd_fwd,syl_wrd_bwd=self.get_position(cur_syl.get_related_items('Breath Group')[0],cur_syl.to_string(),'Syllable')
                 syl_phrase_fwd,syl_phrase_bwd=self.get_position(cur_syl.get_related_items('Word JTrans')[0],cur_syl.to_string(),'Syllable')
                 cur_last_phone=self.get_syl_last_phone(cur_syl)
                 if icur_syl<len(self.syllables)-1:
-                	nex_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl+1]))
+                    nex_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl+1]))
+                    nex_syl_style='{}'.format(self.get_syllable_style(self.syllables[icur_syl+1]))
                 else:
-                	nex_syl_struct="x"
+                    nex_syl_struct="x"
+                    nex_syl_style="x"
         		# Word Informations
                 cur_word=cur_syl.get_related_items('Word JTrans')[0]
                 icur_word=cur_word.get_in_sequence_index()                
-                if icur_word>0 and len(self.words[icur_word-1].get_related_items('Pos'))>0:
+                if icur_word>0 and len(self.words[icur_word-1].get_related_items(self.part_of_speech))>0:
                 	prev_word_nsyl='{}'.format(len(self.words[icur_word-1].get_related_items('Syllable')))
-                	prev_word_pos='{}'.format(self.words[icur_word-1].get_related_items('Pos')[0].to_string())
+                	prev_word_pos='{}'.format(self.words[icur_word-1].get_related_items(self.part_of_speech)[0].to_string())
                 else:
                 	prev_word_nsyl='x'
                 	prev_word_pos='x'
 
-                if icur_word<len(self.words) and len(self.words[icur_word+1].get_related_items('Pos'))>0:
+                if icur_word<len(self.words) and len(self.words[icur_word+1].get_related_items(self.part_of_speech))>0:
                 	next_word_nsyl='{}'.format(len(self.words[icur_word+1].get_related_items('Syllable')))
-                	next_word_pos='{}'.format(self.words[icur_word+1].get_related_items('Pos')[0].to_string())		
+                	next_word_pos='{}'.format(self.words[icur_word+1].get_related_items(self.part_of_speech)[0].to_string())		
                 else:
                 	next_word_nsyl='x'
                 	next_word_pos='x'
 
                 cur_word_nsyl='{}'.format(len(cur_word.get_related_items('Syllable')))
-                if len(cur_word.get_related_items('Pos'))>0:
-                	cur_word_pos='{}'.format(cur_word.get_related_items('Pos')[0].to_string())
+                if len(cur_word.get_related_items(self.part_of_speech))>0:
+                	cur_word_pos='{}'.format(cur_word.get_related_items(self.part_of_speech)[0].to_string())
                 else:
                 	cur_word_pos='x'
                 cur_phrase=cur_word.get_related_items('Breath Group')[0]
@@ -287,51 +339,66 @@ class UttByUtt(object):
                 cur_word_in_phrase_fwd,cur_word_in_phrase_bwd=self.get_position(cur_phrase,cur_word.to_string(),'Word JTrans')
         		# Phrase Information		
                 if icur_phrase>0:
-                	prev_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase-1].get_related_items('Word JTrans')))
-                	prev_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase-1].get_related_items('Syllable')))
+                    prev_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase-1].get_related_items('Word JTrans')))
+                    prev_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase-1].get_related_items('Syllable')))
+                    prev_phrase_disc=self.add_discours_feat(self.phrases[icur_phrase-1])
+                    prev_phrase_emot=self.add_expressivness_feat(self.phrases[icur_phrase-1])
                 else:
-                	prev_phrase_nwrd='x'
-                	prev_phrase_nsyl='x'
+                    prev_phrase_nwrd='x'
+                    prev_phrase_nsyl='x'
+                    prev_phrase_disc='x'
+                    prev_phrase_emot='x'
         		
                 cur_phrase_nwrd='{}'.format(len(cur_phrase.get_related_items('Word JTrans')))
                 cur_phrase_nsyl='{}'.format(len(cur_phrase.get_related_items('Syllable')))
+                cur_phrase_disc=self.add_discours_feat(cur_phrase)
+                cur_phrase_emot=self.add_expressivness_feat(self.phrases[icur_phrase])
                 cur_phrase_in_utt_fwd=icur_phrase+1
                 cur_phrase_in_utt_bwd=len(self.phrases)-icur_phrase
 
 
                 if icur_phrase<len(self.phrases)-1:
-                	next_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Word JTrans')))
-                	next_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Syllable')))
+                    next_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Word JTrans')))
+                    next_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Syllable')))
+                    next_phrase_disc=self.add_discours_feat(self.phrases[icur_phrase+1])
+                    next_phrase_emot=self.add_expressivness_feat(self.phrases[icur_phrase+1])
                 else:
-                	next_phrase_nwrd='x'
-                	next_phrase_nsyl='x'
+                    next_phrase_nwrd='x'
+                    next_phrase_nsyl='x'
+                    next_phrase_disc='x'
+                    next_phrase_emot='x'
             else:
                 seg_in_syl_fwd,seg_in_syl_bwd='x','x'
         		# current syllable properties will all be x
                 if icur_syl>0:
-                	prev_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl-1]))
+                    prev_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl]))
+                    prev_syl_style='{}'.format(self.get_syllable_style(self.syllables[icur_syl]))
                 else:
-                	prev_syl_struct="x"
+                    prev_syl_struct="x"
+                    prev_syl_style='x'
                 if icur_syl<len(self.syllables)-1:
-                	nex_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl+1]))
+                    nex_syl_struct='{}'.format(self.get_syllable_structure(self.syllables[icur_syl+1]))
+                    nex_syl_style='{}'.format(self.get_syllable_style(self.syllables[icur_syl+1]))
                 else:
-                	nex_syl_struct="x"
+                    nex_syl_struct="x"
+                    nex_syl_style="x"
                 seg_in_syl_fwd,seg_in_syl_bwd='x','x'
                 cur_syl_struct='x'
+                cur_syl_style='x'
                 syl_wrd_fwd,syl_wrd_bwd='x','x'
                 syl_phrase_fwd,syl_phrase_bwd='x','x'
                 cur_last_phone='x'
         		# current word properties will all be x
-                if icur_word>0 and len(self.words[icur_word].get_related_items('Pos'))>0:
+                if icur_word>0 and len(self.words[icur_word].get_related_items(self.part_of_speech))>0:
                 	prev_word_nsyl='{}'.format(len(self.words[icur_word].get_related_items('Syllable')))
-                	prev_word_pos='{}'.format(self.words[icur_word].get_related_items('Pos')[0].to_string())
+                	prev_word_pos='{}'.format(self.words[icur_word].get_related_items(self.part_of_speech)[0].to_string())
                 else:
                 	prev_word_nsyl='x'
                 	prev_word_pos='x'
         			
-                if icur_word<len(self.words) and  len(self.words[icur_word+1].get_related_items('Pos'))>0 and len(self.words[icur_word+1].get_related_items('Syllable'))>0:
+                if icur_word<len(self.words) and  len(self.words[icur_word+1].get_related_items(self.part_of_speech))>0 and len(self.words[icur_word+1].get_related_items('Syllable'))>0:
                 	next_word_nsyl='{}'.format(len(self.words[icur_word+1].get_related_items('Syllable')))
-                	next_word_pos='{}'.format(self.words[icur_word+1].get_related_items('Pos')[0].to_string())		
+                	next_word_pos='{}'.format(self.words[icur_word+1].get_related_items(self.part_of_speech)[0].to_string())		
                 else:
                 	next_word_nsyl='x'
                 	next_word_pos='x'
@@ -341,54 +408,122 @@ class UttByUtt(object):
                 cur_word_in_phrase_fwd,cur_word_in_phrase_bwd='x','x'
         		# current pĥrase properties will all be x
                 if icur_phrase>0:
-                	prev_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase].get_related_items('Word JTrans')))
-                	prev_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase].get_related_items('Syllable')))
+                    prev_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase].get_related_items('Word JTrans')))
+                    prev_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase].get_related_items('Syllable')))
+                    prev_phrase_disc=self.add_discours_feat(self.phrases[icur_phrase])
+                    prev_phrase_disc=self.add_expressivness_feat(self.phrases[icur_phrase])
                 else:
-                	prev_phrase_nwrd='x'
-                	prev_phrase_nsyl='x'
+                    prev_phrase_nwrd='x'
+                    prev_phrase_nsyl='x'
+                    prev_phrase_disc='x'
+                    prev_phrase_emot='x'
 
                 if icur_phrase<len(self.phrases)-1:
-                	next_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Word JTrans')))
-                	next_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Syllable')))
+                    next_phrase_nwrd='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Word JTrans')))
+                    next_phrase_nsyl='{}'.format(len(self.phrases[icur_phrase+1].get_related_items('Syllable')))
+                    next_phrase_disc=self.add_discours_feat(self.phrases[icur_phrase+1])
+                    next_phrase_emot=self.add_expressivness_feat(self.phrases[icur_phrase+1])
                 else:
-                	next_phrase_nwrd='x'
-                	next_phrase_nsyl='x'
+                    next_phrase_nwrd='x'
+                    next_phrase_nsyl='x'
+                    next_phrase_disc='x'
+                    next_phrase_emot='x'
+
                 cur_phrase_nwrd='x'
                 cur_phrase_nsyl='x'
+                cur_phrase_disc='x'
+                cur_phrase_emot='x'
                 cur_phrase_in_utt_fwd='x'
                 cur_phrase_in_utt_bwd='x'
 
-            phone_label_file.write('{} '.format(self.get_time_segment(segment)))    
-            # segment properties #p1ˆp2-p3+p4=p5@p6_p7
-            phone_label_file.write('{}^{}-{}+{}={}@{}_{}'.format(ll_phone,l_phone,c_phone,r_phone,rr_phone,seg_in_syl_fwd,seg_in_syl_bwd))
-            # syllables properties #/A:a3/B:b3@b4-b5&b6-b7|b16/C:c3
-            phone_label_file.write('/A:{}/B:{}@{}-{}&{}-{}|{}/C:{}'.format(prev_syl_struct,cur_syl_struct,syl_wrd_fwd,syl_wrd_bwd,syl_phrase_fwd,syl_phrase_bwd,cur_last_phone,nex_syl_struct))
+            seg_beg=segment.as_acoustic_TimeSegment().get_segment_start()
+            if seg_beg==seg_end:
+                seg_end= segment.as_acoustic_TimeSegment().get_segment_end()
+                phone_label_file.write('{} {} '.format(int(seg_beg*pow(10,7)),int(seg_end*pow(10,7))))
+                # segment properties #p1ˆp2-p3+p4=p5@p6_p7
+                phone_label_file.write('{}^{}-{}+{}={}@{}_{}'.format(ll_phone,l_phone,c_phone,r_phone,rr_phone,seg_in_syl_fwd,seg_in_syl_bwd))
+                # syllables properties #/A:a3-a4/B:b3-b3bis@b4-b5&b6-b7|b16/C:c3_c4
+                phone_label_file.write('/A:{}_{}/B:{}-{}@{}-{}&{}-{}|{}/C:{}_{}'.format(prev_syl_struct,prev_syl_style,cur_syl_struct,cur_syl_style,syl_wrd_fwd,syl_wrd_bwd,syl_phrase_fwd,syl_phrase_bwd,cur_last_phone,nex_syl_struct,nex_syl_style))
+                lprev_syl_style='L-Syl_Style=={}'.format(prev_syl_style)
+                if not lprev_syl_style in self.dict_questions.keys():
+                    self.dict_questions[lprev_syl_style]="QS \"{}\" {{_{}/B:}}".format(lprev_syl_style,prev_syl_style)
 
-            if not cur_last_phone in self.dict_questions.keys():
-                self.dict_questions[cur_last_phone]="QS \"C-Syl_{}\" {{|{}/C:}}".format(cur_last_phone,cur_last_phone)
-           
+                ccur_syl_style='C-Syl_Style=={}'.format(cur_syl_style)
+                if not ccur_syl_style in self.dict_questions.keys():
+                    self.dict_questions[ccur_syl_style]="QS \"{}\" {{-{}@}}".format(ccur_syl_style,cur_syl_style)
 
-            # word properties #/D:d1_d2/E:e1+e2@e3+e4/F:f1_f2
-            phone_label_file.write('/D:{}_{}/E:{}+{}s@{}+{}/F:{}_{}'.format(prev_word_pos,prev_word_nsyl,cur_word_pos,cur_word_nsyl,cur_word_in_phrase_fwd,cur_word_in_phrase_bwd,next_word_pos,next_word_nsyl))
-            lprev_word_pos='L-Word_GPOS={}'.format(prev_word_pos)
-            if not lprev_word_pos in self.dict_questions.keys():
-                self.dict_questions[lprev_word_pos]="QS \"{}\" {{/D:{}_}}".format(lprev_word_pos,prev_word_pos)
-            ccur_word_pos='C-Word_GPOS={}'.format(cur_word_pos)
-            if not ccur_word_pos in self.dict_questions.keys():
-                self.dict_questions[ccur_word_pos]="QS \"{}\" {{/E:{}+}}".format(ccur_word_pos,cur_word_pos)
-            rnext_word_pos='R-Word_GPOS={}'.format(next_word_pos)
-            if not rnext_word_pos in self.dict_questions.keys():
-                self.dict_questions[rnext_word_pos]="QS \"{}\" {{/F:{}_}}".format(rnext_word_pos,next_word_pos)
-   	
-            # phrase properties #/G:g1_g2/H:h1=h2@h3=h4/I:i1_i2
-            phone_label_file.write('/G:{}_{}/H:{}={}@{}={}/I:{}_{}'.format(prev_phrase_nsyl,prev_phrase_nwrd,cur_phrase_nsyl,cur_phrase_nwrd,cur_phrase_in_utt_fwd,cur_phrase_in_utt_bwd,next_phrase_nsyl,next_phrase_nwrd))
-            # utterance properties # /J:j1+j2-j3 
-            phone_label_file.write('/J:{}+{}-{}\n'.format(utt_nbsyllables,utt_nbwords,utt_nphrases))
+                rnext_syl_style='R-Syl_Style=={}'.format(nex_syl_style)    
+                if not rnext_syl_style in self.dict_questions.keys():
+                    self.dict_questions[rnext_syl_style]="QS \"{}\" {{_{}/C:}}".format(rnext_syl_style,nex_syl_style)
+
+
+                if not cur_last_phone in self.dict_questions.keys():
+                    self.dict_questions[cur_last_phone]="QS \"C-Syl_{}\" {{|{}_}}".format(cur_last_phone,cur_last_phone)
+               
+
+                # word properties #/D:d1_d2/E:e1+e2@e3+e4/F:f1_f2
+                phone_label_file.write('/D:{}_{}/E:{}+{}@{}+{}/F:{}_{}'.format(prev_word_pos,prev_word_nsyl,cur_word_pos,cur_word_nsyl,cur_word_in_phrase_fwd,cur_word_in_phrase_bwd,next_word_pos,next_word_nsyl))
+                lprev_word_pos='L-Word_GPOS=={}'.format(prev_word_pos)
+                if not lprev_word_pos in self.dict_questions.keys():
+                    self.dict_questions[lprev_word_pos]="QS \"{}\" {{/D:{}_}}".format(lprev_word_pos,prev_word_pos)
+                ccur_word_pos='C-Word_GPOS=={}'.format(cur_word_pos)
+                if not ccur_word_pos in self.dict_questions.keys():
+                    self.dict_questions[ccur_word_pos]="QS \"{}\" {{/E:{}+}}".format(ccur_word_pos,cur_word_pos)
+                rnext_word_pos='R-Word_GPOS=={}'.format(next_word_pos)
+                if not rnext_word_pos in self.dict_questions.keys():
+                    self.dict_questions[rnext_word_pos]="QS \"{}\" {{/F:{}_}}".format(rnext_word_pos,next_word_pos)
+       	
+                # phrase properties #/G:g1_g2_g2bis_g3/H:h1=h2@h3=h4|h5-h6/I:i1_i2_i2bis_i3
+                phone_label_file.write('/G:{}_{}_{}_{}/H:{}={}@{}={}|{}-{}/I:{}__{}_{}_{}'.format(prev_phrase_nsyl,prev_phrase_nwrd,prev_phrase_emot,prev_phrase_disc,cur_phrase_nsyl,cur_phrase_nwrd,cur_phrase_in_utt_fwd,cur_phrase_in_utt_bwd,cur_phrase_disc,cur_phrase_emot,next_phrase_nsyl,next_phrase_nwrd,next_phrase_emot,next_phrase_disc))
+                # utterance properties # /J:j1+j2-j3 
+                phone_label_file.write('/J:{}+{}-{}\n'.format(utt_nbsyllables,utt_nbwords,utt_nphrases))
+            else:
+                print("************** Fatal error ***** {} > {} in {}".format(seg_beg,seg_end,self.label_file_dest))
         phone_label_file.close()
-            
-    
-    
 
+
+    def add_expressivness_feat(self, phrase):
+        if self.utt.is_valid_sequence('Emotion Label'):
+            phrases_emotions=phrase.get_related_items('Emotion Label')
+            if len(phrases_emotions):
+                emo_label=phrases_emotions[0].to_string(-1)
+                if emo_label=='_':
+                    return '1'
+                else:
+                    return '2'
+            else:
+                return 'x'
+        else:
+            return numpy.random.choice([2, 1], size=(1,), p=[1./4, 3./4])[0]
+
+
+    def add_discours_feat(self,phrase):
+        if self.utt.is_valid_sequence('Character Label'):
+            phrases_discourses=phrase.get_related_items('Character Label')
+            if len(phrases_discourses):
+                disc_label=phrases_discourses[0].to_string(-1)
+                if disc_label=='_':
+                    return '1'
+                else:
+                    return '2'
+            else:
+                return 'x'
+        else:
+            return numpy.random.choice([2, 1], size=(1,), p=[1./4, 3./4])[0]
+
+    def get_syllable_style(self,syllable):
+        if self.utt.is_valid_sequence('SyllableStyle'):
+            syllablestyle=syllable.get_related_items("SyllableStyle")
+            if len(syllablestyle):
+                sylstyle=syllablestyle[0].to_string(-1)
+                if sylstyle=='_':
+                    return 'neutral'
+                else:
+                    return sylstyle
+            else:
+                return 'x'
+        else:
+            return 'x'
     def build_up_dict(self,segment):
     	phoneme = segment.get_related_items('Phone JTrans')[0]
     	phoneIpa=phoneme.as_phonology_Phoneme().get_ipa()
@@ -404,7 +539,20 @@ class UttByUtt(object):
     def check_out(self):
         return [self.utt.is_valid_sequence(nseq) for nseq in self.list_sequences_name]
     
-    
+
+
+# class SentBySent(object):
+#     default_questions_dict=load_default_questions()
+#     def __init__(self,sentence,utt_file_name,dict_questions_corpus,list_sequences_name=None):
+#         self.utt_file_name=utt_file_name
+#         self.dict_questions=dict_questions_corpus
+#         self.sentence=sentence
+#         if self.utt.is_valid_sequence('Time Segment JTrans'):
+#             self.segments = [seg.as_acoustic_TimeSegment() for seg in sentence.get_relaled_items('Time Segment JTrans')]
+#         else:
+#             sys.exit(-1)
+
+#     def sentence_process(self):
 
 
 # In[41]
@@ -414,6 +562,7 @@ def build_arg_parser():
     parser=argparse.ArgumentParser(description='parse')
     parser.add_argument('in_corpus',type=str,nargs=1,help='roots corpus input file name')
     parser.add_argument('out_phone_label_dir',type=str,nargs=1,help='phone label output file name (merlin)')
+    parser.add_argument('speaker_name',type=str,nargs=1,help='speaker\'s name')
     parser.add_argument('copy_dest_dir',type=str,nargs=1,help='phone label output file name (merlin)')
     
     return parser
@@ -424,8 +573,9 @@ def main():
     args=build_arg_parser().parse_args()
     roots_file_name=args.in_corpus[0]
     label_dir_dest=args.out_phone_label_dir[0]
+    speaker_name=args.speaker_name[0]
     copy_dest_dir=args.copy_dest_dir[0]
-    roots2merlin=Roots2Merlin(roots_file_name,label_dir_dest)
+    roots2merlin=Roots2Merlin(roots_file_name,label_dir_dest,speaker_name=speaker_name)
     utts=roots2merlin.load_roots_file()
     roots2merlin.processing(utts)
 

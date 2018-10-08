@@ -1,1 +1,5 @@
-# parallelize
+TODO
+------
+
+Paralelize utterances process
+=============================
