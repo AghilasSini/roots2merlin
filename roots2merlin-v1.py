@@ -20,6 +20,15 @@ from shutil import copyfile
 import re
 from collections import OrderedDict
 import subprocess
+
+# multi processing simple and basic
+import multiprocessing as mp
+import random
+import string
+
+from multiprocessing import Manager, Lock
+
+
 # Author : Aghilas SINI
 # This code is inspired from TextGrid.py Class Source Code
 
@@ -28,7 +37,8 @@ class Roots2Merlin(object):
     file_id_list=[]
     iutt=0 
     dict_questions_corpus=OrderedDict()
-    def __init__(self,roots_file_name,label_dir_dest,speaker_name='nadine',min_utt_dur=1.5,max_utt_dur=20,num_utt=2000,copy_dest_dir=None,copy=False):
+    utts=[]
+    def __init__(self,roots_file_name,label_dir_dest,speaker_name='nadine',min_utt_dur=1.5,max_utt_dur=10000,num_utt=4000,copy_dest_dir=None,copy=False):
         self.roots_file_name=roots_file_name
         self.label_dir_dest=label_dir_dest
         self.copy=copy
@@ -48,51 +58,76 @@ class Roots2Merlin(object):
 
     def convert_audio_file(self,source_wav_fn,target_wav_fn, target_fs):
         bashCommand = "sox {}  {} rate {}k".format(source_wav_fn,target_wav_fn,target_fs)
-        
+
         process = subprocess.Popen(bashCommand.split(), stdout=subprocess.PIPE)
         output, error = process.communicate()
-   
+
+    def solve(self,iutt,utt,sigItem,audio_dir,phone_label_dir,output,lock):
+        utt_file_name,ext=os.path.splitext(sigItem.get_file_name())
+        audio_file_orig=os.path.join(self.get_roots_file_dirpath(),sigItem.get_base_dir_name()+"/"+sigItem.get_file_name())
+
+        label_id_name=self.speaker_name+'_'+str(iutt).zfill(4)
+
+        label_file_name=os.path.join(phone_label_dir,label_id_name+".lab")
+
+        audio_file_copy=os.path.join(audio_dir,label_id_name+".wav")
+
+        utt_prop=UttByUtt(utt,label_file_name,self.dict_questions_corpus)
+        self.dict_questions_corpus=utt_prop.get_question_dict()
+        utt_prop.get_segment_context()
+        output.put(label_id_name)
+        utt.destroy()
+        lock.acquire()
+        try:
+            self.convert_audio_file(audio_file_orig,audio_file_copy,48)
+            utt_prop.pretty_print()
+        finally:
+            lock.release()
 
 
-    def processing(self,utts):
+
+
+
+
+    def processing(self,utts,PROCESSES = 4):
         if not os.path.exists(self.label_dir_dest):
             os.mkdir(self.label_dir_dest)
         print("utt by utt processing start....")
-        for utt in utts:
+        processes=[]
+        output = mp.Queue()
+        lock = Lock()
+        # issue with this shared variable
+        #questions_dict=Manager().dict()
+        audio_dir=os.path.join(self.label_dir_dest,'wav')
+        if not os.path.exists(audio_dir):
+            os.mkdir(audio_dir)
+        phone_label_dir=os.path.join(self.label_dir_dest,'label_phone_align')
+        if not os.path.exists(phone_label_dir):
+            os.mkdir(phone_label_dir)
+
+
+        for i,utt in enumerate(utts):
             sigItem=utt.get_sequence('Signal').get_item(0).as_acoustic_SignalSegment()
-            time_segments=utt.get_sequence('Time Segment JTrans')
-            if sigItem.get_segment_duration() > self.min_utt_dur  and sigItem.get_segment_duration() < self.max_utt_dur and self.iutt < self.num_utt:
-                utt_file_name,ext=os.path.splitext(sigItem.get_file_name())
-                audio_file_orig=os.path.join(self.get_roots_file_dirpath(),sigItem.get_base_dir_name()+"/"+sigItem.get_file_name())
-                audio_dir=os.path.join(self.label_dir_dest,'wav')
-                if not os.path.exists(audio_dir):
-                    os.mkdir(audio_dir)
-
-                phone_label_dir=os.path.join(self.label_dir_dest,'label_phone_align')
-                
-                if not os.path.exists(phone_label_dir):
-                    os.mkdir(phone_label_dir)
-                label_id_name=self.speaker_name+'_'+str(self.iutt).zfill(4)
-
-                label_file_name=os.path.join(phone_label_dir,label_id_name+".lab")
-                audio_file_copy=os.path.join(audio_dir,label_id_name+".wav")
-
-                self.file_id_list.append(label_id_name)
-                utt_prop=UttByUtt(utt,label_file_name,self.dict_questions_corpus)
-                utt_prop.get_segment_context()
-                self.dict_questions_corpus=utt_prop.get_question_dict()
-                #self.convert_audio_file(audio_file_orig,audio_file_copy,48)	
-                #for making copy
-                if self.copy:
-                    label_file_name_copy=os.path.join(self.copy_dest_dir,utt_file_name+".lab")
-                    copyfile(label_file_name,label_file_name_copy)
+            utt_file_name,ext=os.path.splitext(sigItem.get_file_name())
+            if sigItem.get_segment_duration()>self.min_utt_dur and sigItem.get_segment_duration()<self.max_utt_dur and self.iutt<self.num_utt:
+                processes.append(mp.Process(target=self.solve,args=(i,utt,sigItem,audio_dir,phone_label_dir,output,lock)))
                 self.iutt+=1
+            else:
+                pass
 
-            utt.destroy()
+        for p in processes:
+            p.start()
+        for p in processes:
+            p.join()
+
+        self.file_id_list=[output.get() for p in processes]
+        print(self.file_id_list)
         file_id_path=os.path.join(self.label_dir_dest,'file_id_list.scp')
         self.print_file_ids(file_id_path)
         print('questions head file')
-        self.print_hed_question_file('./questions-{}.txt'.format(self.speaker_name))
+        #self.dict_questions_corpus=questions_dict
+        question_file_name='questions-{}.txt'.format(self.speaker_name)
+        self.print_hed_question_file(os.path.join(self.label_dir_dest,question_file_name))
     
     def load_roots_file(self):
         try:
@@ -131,6 +166,7 @@ class Roots2Merlin(object):
 class UttByUtt(object):
     default_questions_dict=load_default_questions()
     #varialble
+    lines=[]
     def __init__(self,utt,label_file_dest,dict_questions_corpus,list_sequences_name=None):
         #self.list_sequences_name=list_sequences_name
         self.label_file_dest=label_file_dest
@@ -250,9 +286,10 @@ class UttByUtt(object):
         icur_phrase=0
         seg_end=0.0
         seg_beg=0.0
+        
         for iseg, segment in enumerate(self.segments):
+            line=''
 	    # p1ˆp2-p3+p4=p5
-
             ll_phone,l_phone,c_phone,r_phone,rr_phone=self.get_quinphon(iseg)
             cur_syls=segment.get_related_items('Syllable')
             
@@ -439,11 +476,11 @@ class UttByUtt(object):
             seg_beg=segment.as_acoustic_TimeSegment().get_segment_start()
             if seg_beg==seg_end:
                 seg_end= segment.as_acoustic_TimeSegment().get_segment_end()
-                phone_label_file.write('{} {} '.format(int(seg_beg*pow(10,7)),int(seg_end*pow(10,7))))
+                line+='{} {} '.format(int(seg_beg*pow(10,7)),int(seg_end*pow(10,7)))
                 # segment properties #p1ˆp2-p3+p4=p5@p6_p7
-                phone_label_file.write('{}^{}-{}+{}={}@{}_{}'.format(ll_phone,l_phone,c_phone,r_phone,rr_phone,seg_in_syl_fwd,seg_in_syl_bwd))
+                line+='{}^{}-{}+{}={}@{}_{}'.format(ll_phone,l_phone,c_phone,r_phone,rr_phone,seg_in_syl_fwd,seg_in_syl_bwd)
                 # syllables properties #/A:a3-a4/B:b3-b3bis@b4-b5&b6-b7|b16/C:c3_c4
-                phone_label_file.write('/A:{}_{}/B:{}-{}@{}-{}&{}-{}|{}/C:{}_{}'.format(prev_syl_struct,prev_syl_style,cur_syl_struct,cur_syl_style,syl_wrd_fwd,syl_wrd_bwd,syl_phrase_fwd,syl_phrase_bwd,cur_last_phone,nex_syl_struct,nex_syl_style))
+                line+='/A:{}_{}/B:{}-{}@{}-{}&{}-{}|{}/C:{}_{}'.format(prev_syl_struct,prev_syl_style,cur_syl_struct,cur_syl_style,syl_wrd_fwd,syl_wrd_bwd,syl_phrase_fwd,syl_phrase_bwd,cur_last_phone,nex_syl_struct,nex_syl_style)
                 lprev_syl_style='L-Syl_Style=={}'.format(prev_syl_style)
                 if not lprev_syl_style in self.dict_questions.keys():
                     self.dict_questions[lprev_syl_style]="QS \"{}\" {{_{}/B:}}".format(lprev_syl_style,prev_syl_style)
@@ -462,7 +499,7 @@ class UttByUtt(object):
                
 
                 # word properties #/D:d1_d2/E:e1+e2@e3+e4/F:f1_f2
-                phone_label_file.write('/D:{}_{}/E:{}+{}@{}+{}/F:{}_{}'.format(prev_word_pos,prev_word_nsyl,cur_word_pos,cur_word_nsyl,cur_word_in_phrase_fwd,cur_word_in_phrase_bwd,next_word_pos,next_word_nsyl))
+                line+='/D:{}_{}/E:{}+{}@{}+{}/F:{}_{}'.format(prev_word_pos,prev_word_nsyl,cur_word_pos,cur_word_nsyl,cur_word_in_phrase_fwd,cur_word_in_phrase_bwd,next_word_pos,next_word_nsyl)
                 lprev_word_pos='L-Word_GPOS=={}'.format(prev_word_pos)
                 if not lprev_word_pos in self.dict_questions.keys():
                     self.dict_questions[lprev_word_pos]="QS \"{}\" {{/D:{}_}}".format(lprev_word_pos,prev_word_pos)
@@ -474,12 +511,18 @@ class UttByUtt(object):
                     self.dict_questions[rnext_word_pos]="QS \"{}\" {{/F:{}_}}".format(rnext_word_pos,next_word_pos)
        	
                 # phrase properties #/G:g1_g2_g2bis_g3/H:h1=h2@h3=h4|h5-h6/I:i1_i2_i2bis_i3
-                phone_label_file.write('/G:{}_{}_{}_{}/H:{}={}@{}={}|{}-{}/I:{}__{}_{}_{}'.format(prev_phrase_nsyl,prev_phrase_nwrd,prev_phrase_emot,prev_phrase_disc,cur_phrase_nsyl,cur_phrase_nwrd,cur_phrase_in_utt_fwd,cur_phrase_in_utt_bwd,cur_phrase_disc,cur_phrase_emot,next_phrase_nsyl,next_phrase_nwrd,next_phrase_emot,next_phrase_disc))
+                line+='/G:{}_{}_{}_{}/H:{}={}@{}={}|{}-{}/I:{}_{}_{}_{}'.format(prev_phrase_nsyl,prev_phrase_nwrd,prev_phrase_emot,prev_phrase_disc,cur_phrase_nsyl,cur_phrase_nwrd,cur_phrase_in_utt_fwd,cur_phrase_in_utt_bwd,cur_phrase_disc,cur_phrase_emot,next_phrase_nsyl,next_phrase_nwrd,next_phrase_emot,next_phrase_disc)
                 # utterance properties # /J:j1+j2-j3 
-                phone_label_file.write('/J:{}+{}-{}\n'.format(utt_nbsyllables,utt_nbwords,utt_nphrases))
+                line+='/J:{}+{}-{}\n'.format(utt_nbsyllables,utt_nbwords,utt_nphrases)
             else:
                 print("************** Fatal error ***** {} > {} in {}".format(seg_beg,seg_end,self.label_file_dest))
-        phone_label_file.close()
+            self.lines.append(line)
+
+    def pretty_print(self):
+        with codecs.open(self.label_file_dest,'w','utf-8') as phone_label_file:
+            for line in self.lines:
+                phone_label_file.write(line)
+
 
 
     def add_expressivness_feat(self, phrase):
