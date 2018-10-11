@@ -14,6 +14,7 @@ from shutil import copyfile
 import re
 from collections import OrderedDict
 import subprocess
+from scipy.io import wavfile
 # Author : Aghilas SINI
 # This code is inspired from TextGrid.py Class Source Code
 
@@ -51,24 +52,51 @@ class Roots2Merlin(object):
     def processing(self,utts):
         if not os.path.exists(self.label_dir_dest):
             os.mkdir(self.label_dir_dest)
-        print("utt by utt processing start....")
+
+        audio_dir=os.path.join(self.label_dir_dest,'wav')
+        if not os.path.exists(audio_dir):
+            os.mkdir(audio_dir)
+        phone_label_dir=os.path.join(self.label_dir_dest,'label_phone_align')
+        if not os.path.exists(phone_label_dir):
+            os.mkdir(phone_label_dir)
+
+
+
         for utt in utts:
             sigItem=utt.get_sequence('Signal').get_item(0).as_acoustic_SignalSegment()
-            utt_file_name,ext=os.path.splitext(sigItem.get_file_name())
+            
             if utt.is_valid_sequence('Sentence Bonsai') and self.iutt<self.num_utt:
                 self.sentences=utt.get_sequence('Sentence Bonsai').as_symbol_sequence().get_all_items()
                 #
-                self.get_sent_full_context(utt_file_name)
+                self.get_sent_full_context(phone_label_dir,audio_dir,sigItem)
 
             else:
                 sys.exit(-1)
             self.iutt+=1
 
-    def get_sent_full_context(self,utt_file_name):
+    def get_sent_full_context(self,phone_label_dir,audio_dir,sigItem):
+        utt_file_name,ext=os.path.splitext(sigItem.get_file_name())
         for isent,sent in enumerate(self.sentences):
-            
-            sent_file_name=os.path.join(self.label_dir_dest,utt_file_name+"_{}".format(str(isent).zfill(4)))
-            SentBySent(sent,sent_file_name,self.dict_questions_corpus).get_full_context()
+            utt_file_name,ext=os.path.splitext(sigItem.get_file_name())
+            audio_file_orig=os.path.join(self.get_roots_file_dirpath(),sigItem.get_base_dir_name()+"/"+sigItem.get_file_name())
+
+            label_id_name=self.speaker_name+'_s'+str(isent).zfill(4)
+
+            label_file_name=os.path.join(phone_label_dir,label_id_name+".lab")
+
+            audio_file_copy=os.path.join(audio_dir,label_id_name+".wav")
+
+            sent_file_name=os.path.join(phone_label_dir,utt_file_name+"_s{}.lab".format(str(isent).zfill(4)))
+            sent_audio_fn=os.path.join(audio_dir,utt_file_name+"_s{}.wav".format(str(isent).zfill(4)))
+
+            sentbysent=SentBySent(sent,self.dict_questions_corpus)
+            sentbysent.get_full_context(sent_file_name)
+            sentbysent.get_audio_file(audio_file_orig,sent_audio_fn)
+
+
+        
+
+
 
 
     def load_roots_file(self):
@@ -82,14 +110,13 @@ class Roots2Merlin(object):
 
 class SentBySent(object):
     default_questions_dict=load_default_questions()
-    def __init__(self,sentence,sent_file_name,dict_questions_corpus,list_sequences_name=None):
-        self.sent_file_name=sent_file_name
+    def __init__(self,sentence,dict_questions_corpus,list_sequences_name=None):
         self.dict_questions=dict_questions_corpus
         self.sentence=sentence
 
         # get all segments
         self.segments = [seg.as_acoustic_TimeSegment() for seg in self.sentence.get_related_items('Time Segment JTrans')]
-        self.syllables = self.sentence.get_related_items('Syllable')
+        self.syllables =self.sentence.get_related_items('Syllable')
         self.words =self.sentence.get_related_items('Word Bonsai')
         self.phrases =self.sentence.get_related_items('Breath Group')
 
@@ -133,10 +160,10 @@ class SentBySent(object):
      
 
 
-    def get_full_context(self):
+
+    def get_full_context(self,sent_file_name):
         self.get_sent_properties()
-        print(self.sent_file_name)
-        phone_labe_file= codecs.open(self.sent_file_name,'w','utf-8')
+        phone_labe_file= codecs.open(sent_file_name,'w','utf-8')
         first_seg_beg=self.segments[0].get_segment_start()
         for iseg,seg in enumerate(self.segments):
             seg_beg=seg.get_segment_start()-first_seg_beg
@@ -145,6 +172,33 @@ class SentBySent(object):
             ll_phone,l_phone,c_phone,r_phone,rr_phone=self.get_quinphon(iseg)
             phone_labe_file.write('{}^{}-{}+{}={}\n'.format(ll_phone,l_phone,c_phone,r_phone,rr_phone))
         phone_labe_file.close()
+
+
+
+
+    
+
+
+
+    def get_audio_file(self,audio_file_orig,sent_audio_fn):
+        samplingrate,data=wavfile.read(audio_file_orig)
+        sent_time_start=self.segments[0].get_segment_start()
+        sent_time_end=self.segments[-1].get_segment_start()
+        # 4410 add 100 ms of silience
+        firstSample=int(sent_time_start*samplingrate)+4410
+        lastSample=int(sent_time_end*samplingrate)+4410    
+        if len(data[firstSample:lastSample])>0:
+            upsampling=44800
+            wavfile.write(sent_audio_fn,upsampling,data[firstSample:lastSample])
+        else:
+            print('ERROR')
+
+
+
+
+
+  
+
 
     def get_sent_properties(self):
         print(len(self.phrases),len(self.words),len(self.syllables))

@@ -66,7 +66,7 @@ class Roots2Merlin(object):
         utt_file_name,ext=os.path.splitext(sigItem.get_file_name())
         audio_file_orig=os.path.join(self.get_roots_file_dirpath(),sigItem.get_base_dir_name()+"/"+sigItem.get_file_name())
 
-        label_id_name=self.speaker_name+'_'+str(iutt).zfill(4)
+        label_id_name=self.speaker_name+'_s'+str(iutt).zfill(4)
 
         label_file_name=os.path.join(phone_label_dir,label_id_name+".lab")
 
